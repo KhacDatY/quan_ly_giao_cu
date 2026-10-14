@@ -24,9 +24,15 @@ public class User {
     private String password;
 
     private String fullName;
+    private String position;
+
 
     @Column(unique = true)
     private String email;
 
+    @ManyToOne
+    @JoinColumn(name = "group_id")
+    private Group group;
+    @Enumerated(EnumType.STRING)
     private Role role;
 }

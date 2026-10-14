@@ -4,11 +4,13 @@ import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.Size;
 import lombok.*;
 
+import java.util.UUID;
+
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-public class UserCreationRequest {
+public class UserCreationRequest{
     @Size(min = 3, message = "INVALID_USERNAME")
     private String username;
 
@@ -16,6 +18,10 @@ public class UserCreationRequest {
     private String password;
 
     private String fullName;
+
+    private String role;
+
+    private UUID groupId;
 
     @Email(message = "INVALID_EMAIL")
     private String email;

@@ -39,10 +39,19 @@ public class UserController {
                 .build();
     }
 
-    @PutMapping
-    public ApiResponse<UserResponse> updateUser(@Valid @RequestBody UserUpdateRequest request) {
+    @PutMapping("/{userId}")
+    public ApiResponse<UserResponse> updateUserByAdmin(
+            @PathVariable("userId") UUID userId,
+            @Valid @RequestBody UserUpdateRequest request) {
         return ApiResponse.<UserResponse>builder()
-                .result(userService.updateUser(request))
+                .result(userService.updateUserByAdmin(userId, request))
+                .build();
+    }
+
+    @PutMapping("/change-password")
+    public ApiResponse<String> changePassword(@Valid @RequestBody ChangePasswordRequest request) {
+        return ApiResponse.<String>builder()
+                .result(userService.changePassword(request))
                 .build();
     }
 
