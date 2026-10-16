@@ -1,7 +1,6 @@
 package com.example.quanly_giaocu.enums;
 
 public enum ProposalStatus {
-    DRAFT,                // Bản nháp
     PENDING_MANAGER,      // Chờ Quản lý duyệt nhu cầu
     PENDING_ACCOUNTANT,   // Chờ Kế toán duyệt ngân sách
     PENDING_DIRECTOR,     // Chờ Giám đốc duyệt chi

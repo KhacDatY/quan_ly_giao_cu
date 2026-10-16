@@ -25,10 +25,24 @@ public class UserController {
                 .build();
     }
 
+    @GetMapping("/my-info")
+    public ApiResponse<UserResponse> getMyInfo() {
+        return ApiResponse.<UserResponse>builder()
+                .result(userService.getMyInfo())
+                .build();
+    }
+
     @GetMapping
     public ApiResponse<List<UserResponse>> getUsers(){
         return ApiResponse.<List<UserResponse>>builder()
                 .result(userService.getUsers())
+                .build();
+    }
+
+    @GetMapping("/teachers")
+    public ApiResponse<List<UserResponse>> getAllTeachers() {
+        return ApiResponse.<List<UserResponse>>builder()
+                .result(userService.getAllTeachers())
                 .build();
     }
 
@@ -62,4 +76,6 @@ public class UserController {
                 .result("User has been deleted")
                 .build();
     }
+
+
 }

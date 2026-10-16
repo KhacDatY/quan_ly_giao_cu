@@ -34,7 +34,7 @@ public class GroupService {
         return groupMapper.toGroupResponse(groupRepository.save(group));
     }
 
-    @PreAuthorize("hasRole('DIRECTOR')")
+    @PreAuthorize("hasAnyRole('DIRECTOR', 'MANAGER', 'ADMIN', 'ACCOUNTANT')")
     public List<GroupResponse> getAllGroups() {
         return groupRepository.findAll().stream()
                 .map(groupMapper::toGroupResponse)

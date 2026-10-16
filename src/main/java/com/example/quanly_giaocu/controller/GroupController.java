@@ -29,6 +29,7 @@ public class GroupController {
                 .build();
     }
 
+
     @GetMapping
     public ApiResponse<List<GroupResponse>> getAllGroups() {
         return ApiResponse.<List<GroupResponse>>builder()

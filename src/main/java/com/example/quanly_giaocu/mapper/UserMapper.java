@@ -10,6 +10,8 @@ import org.mapstruct.MappingTarget;
 @Mapper(componentModel = "spring")
 public interface UserMapper {
     User toUser(UserCreationRequest request);
+
+    @Mapping(source = "group.name", target = "groupName")
     UserResponse toUserResponse(User user);
 
     @Mapping(target = "password", ignore = true)

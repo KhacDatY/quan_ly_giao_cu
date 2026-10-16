@@ -36,6 +36,13 @@ public class ProposalController {
                 .build();
     }
 
+    @GetMapping("/next-code")
+    public ApiResponse<String> getNextProposalCode() {
+        return ApiResponse.<String>builder()
+                .result(proposalService.getNextProposalCode())
+                .build();
+    }
+
     @PutMapping("/{id}")
     public ApiResponse<ProposalResponse> updateProposal(
             @PathVariable Long id,
@@ -84,7 +91,7 @@ public class ProposalController {
     }
 
     @PostMapping("/{id}/reject")
-    @PreAuthorize("hasAnyRole('MANAGER', 'DIRECTOR')")
+    @PreAuthorize("hasAnyRole('MANAGER')")
     public ApiResponse<String> rejectProposal(@PathVariable Long id, @Valid @RequestBody ActionRequest request) {
         proposalService.rejectProposal(id, request.getNote());
         return ApiResponse.<String>builder().result("Đã từ chối").build();
@@ -149,9 +156,7 @@ public class ProposalController {
 
     // 4. Kế toán Từ chối đề xuất
     @PostMapping("/{id}/reject-accountant")
-    @PreAuthorize("hasRole('ACCOUNTANT')")
     public ApiResponse<String> rejectByAccountant(@PathVariable Long id, @Valid @RequestBody ActionRequest request) {
-        // @Valid sẽ đảm bảo request.getNote() không được trống
         proposalService.rejectByAccountant(id, request.getNote());
         return ApiResponse.<String>builder().result("Đã từ chối đề xuất do vấn đề ngân sách").build();
     }

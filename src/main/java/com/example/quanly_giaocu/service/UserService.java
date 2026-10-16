@@ -64,6 +64,13 @@ public class UserService {
                 .map(userMapper::toUserResponse).toList();
     }
 
+    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER', 'DIRECTOR', 'ACCOUNTANT')")
+    public List<UserResponse> getAllTeachers() {
+        return userRepository.findByRole(Role.TEACHER).stream()
+                .map(userMapper::toUserResponse)
+                .toList();
+    }
+
     public String changePassword(ChangePasswordRequest request) {
         var context = SecurityContextHolder.getContext();
         String name = context.getAuthentication().getName();

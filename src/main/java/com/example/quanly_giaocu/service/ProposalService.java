@@ -11,7 +11,7 @@ import com.example.quanly_giaocu.enums.ProposalStatus;
 import com.example.quanly_giaocu.exception.AppException;
 import com.example.quanly_giaocu.exception.ErrorCode;
 import com.example.quanly_giaocu.mapper.ProposalMapper;
-import com.example.quanly_giaocu.repository.GroupBudgetRepository;
+import com.example.quanly_giaocu.repository.BudgetRepository;
 import com.example.quanly_giaocu.repository.ProposalRepository;
 import com.example.quanly_giaocu.repository.UserRepository;
 import com.example.quanly_giaocu.specification.*;
@@ -27,9 +27,9 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -40,7 +40,7 @@ public class ProposalService {
     private final ProposalRepository proposalRepository;
     private final UserRepository userRepository;
     private final ProposalMapper proposalMapper;
-    private final GroupBudgetRepository groupBudgetRepository;
+    private final BudgetRepository budgetRepository;
 
     @Transactional
     public ProposalResponse createProposal(ProposalCreateRequest request) {
@@ -57,9 +57,7 @@ public class ProposalService {
         proposal.setPriority(request.getPriority());
         proposal.setStatus(ProposalStatus.PENDING_MANAGER);
 
-        // Tạo mã tự động: DX-YYYYMMDD-HHmmss (Bạn có thể đổi logic này sau)
-        String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss"));
-        proposal.setCode("DX-" + timestamp);
+        proposal.setCode(getNextProposalCode());
 
         // 3. Xử lý Giáo cụ
         Double estimatedTotal = 0.0;
@@ -125,6 +123,24 @@ public class ProposalService {
         // 5. Lưu vào DB và map sang Response
         Proposal savedProposal = proposalRepository.save(proposal);
         return proposalMapper.toProposalResponse(savedProposal);
+    }
+
+    public String getNextProposalCode() {
+        int year = LocalDate.now().getYear();
+        String prefix = "DX-" + year + "-";
+        Optional<Proposal> lastProposal = proposalRepository.findFirstByCodeStartingWithOrderByCodeDesc(prefix);
+
+        if (lastProposal.isPresent()) {
+            String lastCode = lastProposal.get().getCode();
+            try {
+                // Cắt lấy 4 số cuối: DX-2026-0001 -> 0001
+                int sequence = Integer.parseInt(lastCode.substring(lastCode.lastIndexOf("-") + 1));
+                return prefix + String.format("%04d", sequence + 1);
+            } catch (NumberFormatException e) {
+                return prefix + "0001";
+            }
+        }
+        return prefix + "0001";
     }
 
     public ProposalResponse getProposalById(Long id) {
@@ -278,7 +294,8 @@ public class ProposalService {
     // 3. YÊU CẦU CHỈNH SỬA
     @Transactional
     public void requestRevision(Long proposalId, String note) {
-        Proposal proposal = getProposalAndValidateStatus(proposalId, ProposalStatus.PENDING_MANAGER);
+        Proposal proposal = proposalRepository.findById(proposalId)
+                .orElseThrow(() -> new RuntimeException("Không tìm thấy đề xuất"));
 
         if (proposal.getStatus() != ProposalStatus.PENDING_MANAGER &&
                 proposal.getStatus() != ProposalStatus.PENDING_DIRECTOR) {
@@ -340,46 +357,48 @@ public class ProposalService {
     // Tính toán đối soát ngân sách cho 1 đề xuất
     public BudgetCheckResponse checkProposalBudget(Long proposalId) {
         Proposal proposal = proposalRepository.findById(proposalId)
-                .orElseThrow(() -> new AppException(ErrorCode.PROPOSAL_NOT_FOUND));
+                .orElseThrow(() -> new RuntimeException("Không tìm thấy đề xuất"));
 
-        int year = proposal.getRequiredDate().getYear();
-        int month = proposal.getRequiredDate().getMonthValue();
-        int quarter = (month - 1) / 3 + 1;
-        UUID groupId = proposal.getCreator().getGroup().getId();
+        // 1. Tính toán Quý và Năm từ Ngày tạo đề xuất
+        LocalDateTime createdAt = proposal.getCreatedAt();
+        int year = createdAt.getYear();
+        int month = createdAt.getMonthValue();
+        int quarter = (month - 1) / 3 + 1; // VD: Tháng 10,11,12 -> Quý 4
 
-        // 1. Lấy Ngân sách được cấp
-        GroupBudget budget = groupBudgetRepository.findByGroupIdAndYearAndQuarter(groupId, year, quarter)
-                .orElse(null);
-        Double allocated = (budget != null) ? budget.getAllocatedAmount() : 0.0;
+        // 2. Lấy Ngân sách của Quý đó
+        Budget budget = budgetRepository.findByYearAndQuarter(year, quarter)
+                .orElseThrow(() -> new RuntimeException("Chưa cấu hình ngân sách cho Quý " + quarter + "/" + year));
 
-        // 2. Tính Đã thực chi & Đã cam kết
-        Double spent = proposalRepository.sumSpentAmount(groupId, year, quarter);
-        if (spent == null) spent = 0.0;
-
-        Double committed = proposalRepository.sumCommittedAmount(groupId, year, quarter);
-        if (committed == null) committed = 0.0;
-
-        // 3. Các chỉ số tính toán
-        Double availableBefore = allocated - spent - committed;
-        Double proposalTotal = proposal.getEstimatedTotal();
-        Double remainingIfApproved = availableBefore - proposalTotal;
-        boolean isSufficient = remainingIfApproved >= 0;
-
-        // Tạo Label tháng cho đẹp giống FE
+        // Xác định ngày bắt đầu và kết thúc của Quý để Query
         int startMonth = (quarter - 1) * 3 + 1;
-        int endMonth = startMonth + 2;
-        String periodLabel = String.format("Quý %d/%d (Tháng %02d - Tháng %02d/%d)", quarter, year, startMonth, endMonth, year);
+        LocalDateTime startOfQuarter = LocalDateTime.of(year, startMonth, 1, 0, 0, 0);
+        LocalDateTime endOfQuarter = startOfQuarter.plusMonths(3).minusNanos(1);
+
+        // 3. Tính SPENT (Đã thực chi - trạng thái COMPLETED)
+        Double spentAmount = proposalRepository.sumTotalByStatusAndDateRange(
+                ProposalStatus.COMPLETED, startOfQuarter, endOfQuarter);
+
+        // 4. Tính COMMITTED (Đã cam kết - trạng thái APPROVED do GĐ duyệt hoặc tự động duyệt)
+        Double committedAmount = proposalRepository.sumTotalByStatusAndDateRange(
+                ProposalStatus.APPROVED, startOfQuarter, endOfQuarter);
+
+        // 5. Tính toán các chỉ số Khả dụng
+        Double allocatedAmount = budget.getAllocatedAmount();
+        Double availableBeforeApproval = allocatedAmount - spentAmount - committedAmount;
+        Double proposalTotal = proposal.getEstimatedTotal();
+        Double remainingIfApproved = availableBeforeApproval - proposalTotal;
+
+        boolean isBudgetSufficient = remainingIfApproved >= 0;
 
         return BudgetCheckResponse.builder()
-                .periodLabel(periodLabel)
-                .groupName(proposal.getCreator().getGroup().getName())
-                .allocatedAmount(allocated)
-                .spentAmount(spent)
-                .committedAmount(committed)
-                .availableBeforeApproval(availableBefore)
+                .periodLabel("Quý " + quarter + "/" + year)
+                .allocatedAmount(allocatedAmount)
+                .spentAmount(spentAmount)
+                .committedAmount(committedAmount)
+                .availableBeforeApproval(availableBeforeApproval)
                 .proposalEstimatedTotal(proposalTotal)
                 .remainingIfApproved(remainingIfApproved)
-                .isBudgetSufficient(isSufficient)
+                .isBudgetSufficient(isBudgetSufficient)
                 .build();
     }
 
@@ -391,21 +410,33 @@ public class ProposalService {
     public void approveByAccountant(Long proposalId, String note) {
         Proposal proposal = getProposalAndValidateStatus(proposalId, ProposalStatus.PENDING_ACCOUNTANT);
 
-        // 1. Kiểm tra ngân sách (Chặn lại và báo lỗi đỏ nếu vượt hạn mức)
+        // 1. Kiểm tra ngân sách (Chỉ duyệt khi còn đủ ngân sách)
         BudgetCheckResponse budget = checkProposalBudget(proposalId);
         if (!budget.isBudgetSufficient()) {
             throw new AppException(ErrorCode.OUT_OF_BUDGET);
         }
 
-        // 2. Chuyển trạng thái
-        proposal.setStatus(ProposalStatus.PENDING_DIRECTOR);
+        // 2. Kiểm tra hạn mức để quyết định luồng duyệt
+        if (proposal.getEstimatedTotal() < 5000000.0) {
+            // Đề xuất DƯỚI 5 triệu -> Bỏ qua Giám đốc, chuyển thẳng sang Hành chính mua hàng
+            proposal.setStatus(ProposalStatus.APPROVED);
 
-        // 3. Ghi log lịch sử (Sẽ tự động hiển thị bên FE cho người tạo xem)
-        saveHistoryLog(proposal, ProposalAction.APPROVED_BUDGET, note);
+            // Ghi log Kế toán duyệt ngân sách
+            saveHistoryLog(proposal, ProposalAction.APPROVED_BUDGET, note);
+
+            // Ghi thêm 1 log tự động của hệ thống để minh bạch quá trình duyệt chi
+            saveHistoryLog(proposal, ProposalAction.APPROVED_FINAL, "Hệ thống tự động duyệt chi do tổng ngân sách dưới 5.000.000đ");
+        } else {
+            // Đề xuất TỪ 5 triệu trở lên -> Phải qua Giám đốc duyệt
+            proposal.setStatus(ProposalStatus.PENDING_DIRECTOR);
+            saveHistoryLog(proposal, ProposalAction.APPROVED_BUDGET, note);
+        }
+
         proposalRepository.save(proposal);
     }
 
     @Transactional
+
     public void rejectByAccountant(Long proposalId, String note) {
         Proposal proposal = getProposalAndValidateStatus(proposalId, ProposalStatus.PENDING_ACCOUNTANT);
 

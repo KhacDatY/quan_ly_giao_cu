@@ -7,7 +7,6 @@ import lombok.Data;
 @Builder
 public class BudgetCheckResponse {
     private String periodLabel; // VD: "Quý 1/2026 (Tháng 01 - Tháng 03/2026)"
-    private String groupName; // VD: "Khối Mầm non (SuperKids)"
 
     private Double allocatedAmount; // Ngân sách được cấp
     private Double spentAmount;     // Đã thực chi
